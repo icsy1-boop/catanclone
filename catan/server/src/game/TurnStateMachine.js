@@ -31,6 +31,7 @@ export function advanceTurn(gameState) {
   gameState.currentPlayerIndex = (gameState.currentPlayerIndex + 1) % n;
   gameState.turnPhase = TurnPhase.ROLL_OR_PLAY_DEV;
   gameState.pendingTrades = {};
+  gameState.turnStartTime = Date.now();
 }
 
 // Advance setup turn (special snake-draft order).
@@ -52,6 +53,7 @@ export function advanceSetupTurn(gameState) {
       // Setup done — start real game
       gameState.phase = 'MAIN';
       gameState.turnPhase = TurnPhase.ROLL_OR_PLAY_DEV;
+      gameState.turnStartTime = Date.now();
       return;
     }
   }

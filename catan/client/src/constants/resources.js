@@ -1,19 +1,19 @@
 export const TERRAIN_COLORS = {
   HILLS: '#c0392b',
-  FOREST: '#27ae60',
+  FOREST: '#2d6a4f',
   MOUNTAINS: '#7f8c8d',
   FIELDS: '#f1c40f',
-  PASTURE: '#2ecc71',
+  PASTURE: '#8bc34a',
   DESERT: '#d4a76a',
   OCEAN: '#2980b9',
 };
 
 export const RESOURCE_COLORS = {
   BRICK: '#c0392b',
-  WOOD: '#27ae60',
+  WOOD: '#2d6a4f',
   ORE: '#7f8c8d',
   WHEAT: '#f1c40f',
-  SHEEP: '#2ecc71',
+  SHEEP: '#8bc34a',
 };
 
 export const RESOURCES = ['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'];

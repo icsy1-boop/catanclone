@@ -5,8 +5,14 @@ import { TurnPhase } from './TurnStateMachine.js';
 import { hexNeighbors } from '../utils/hexMath.js';
 
 const PLAYER_COLORS = [
-  '#e74c3c', '#3498db', '#2ecc71', '#f39c12',
-  '#9b59b6', '#1abc9c', '#e67e22', '#e91e63',
+  '#e74c3c', // Red
+  '#3498db', // Blue
+  '#f39c12', // Orange
+  '#2ecc71', // Green
+  '#9b59b6', // Purple
+  '#e91e63', // Pink
+  '#00bcd4', // Cyan
+  '#f1c40f', // Yellow
 ];
 
 function shuffle(arr) {
@@ -44,6 +50,7 @@ export function createGame(roomCode, playerList) {
     largestArmyCount: 0,
     winner: null,
     pendingTrades: {},
+    turnStartTime: Date.now(),
     log: [],
   };
 }
@@ -69,6 +76,7 @@ export function serializePublic(gs) {
     largestArmyOwner: gs.largestArmyOwner,
     winner: gs.winner,
     pendingTrades: gs.pendingTrades,
+    turnStartTime: gs.turnStartTime,
     log: gs.log.slice(-20),
   };
 }
