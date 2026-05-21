@@ -16,6 +16,7 @@ export function createRoom(hostId, hostName) {
     hostId,
     players: [{ id: hostId, name: hostName }],
     gameState: null,
+    chat: [],
   });
   return rooms.get(code);
 }

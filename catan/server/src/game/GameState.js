@@ -55,6 +55,16 @@ export function createGame(roomCode, playerList) {
   };
 }
 
+function computeBank(gs) {
+  const bank = { WOOD: 19, BRICK: 19, SHEEP: 19, WHEAT: 19, ORE: 19 };
+  for (const player of Object.values(gs.players)) {
+    for (const [res, amt] of Object.entries(player.resources)) {
+      if (bank[res] !== undefined) bank[res] -= amt;
+    }
+  }
+  return bank;
+}
+
 // Serialize game state for broadcast (removes private player data).
 export function serializePublic(gs) {
   const players = {};
@@ -76,8 +86,10 @@ export function serializePublic(gs) {
     largestArmyOwner: gs.largestArmyOwner,
     winner: gs.winner,
     pendingTrades: gs.pendingTrades,
+    discardNeeded: gs.discardNeeded || null,
+    bankResources: computeBank(gs),
     turnStartTime: gs.turnStartTime,
-    log: gs.log.slice(-20),
+    log: gs.log.slice(-30),
   };
 }
 

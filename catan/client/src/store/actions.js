@@ -35,4 +35,6 @@ export const actions = {
   portTrade: (give, want) => socket.emit('port_trade', { roomCode: getCode(), give, want }),
 
   endTurn: () => socket.emit('end_turn', { roomCode: getCode() }),
+  discardResources: (resources) => socket.emit('discard_resources', { roomCode: getCode(), resources }),
+  sendChat: (text) => socket.emit('chat_message', { roomCode: getCode(), text }),
 };

@@ -78,6 +78,9 @@ export default function ActionBar({ onOpenModal }) {
             </Button>
           )}
           <Button onClick={actions.endTurn} variant="primary">End Turn →</Button>
+          <Button onClick={() => onOpenModal('RULES')} variant="ghost" style={{ fontSize: 12 }}>
+            ? Rules
+          </Button>
         </>
       )}
     </div>

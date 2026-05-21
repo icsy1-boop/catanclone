@@ -152,34 +152,62 @@ function buildGraph(tiles) {
   return { vertices, edges };
 }
 
-// Assign ports to coastal vertices.
-// Strategy: walk the outer perimeter of the board in order, placing ports
-// on edge midpoints at regular intervals.
-function assignPorts(tiles, vertices, portConfigs) {
-  // Find the perimeter vertices (vertices touching only 1 or 2 tiles in the board)
-  const tileSet = new Set(tiles.map(t => `${t.q},${t.r}`));
+// Walk the board perimeter to get an ordered list of coastal vertices.
+// Coastal vertices are those adjacent to ≤ 2 board tiles.
+// We connect them via edges where both endpoints are coastal, then chain
+// them into a ring so that consecutive entries are graph-adjacent.
+function perimeterWalk(vertices, edges) {
+  const coastalSet = new Set(
+    Object.keys(vertices).filter(vk => vertices[vk].adjacentTiles.length <= 2)
+  );
+  if (coastalSet.size === 0) return [];
 
-  // Find coastal edges: edges between two vertices where at least one adjacent tile
-  // has a missing neighbor (i.e., the edge is on the outside)
-  // Simpler approach: find vertices adjacent to only 1 or 2 board tiles
-  const coastalVertices = Object.values(vertices).filter(v => v.adjacentTiles.length <= 2);
+  // Build adjacency among coastal vertices using only edges where both endpoints are coastal
+  const adj = {};
+  for (const vk of coastalSet) adj[vk] = [];
+  for (const edge of Object.values(edges)) {
+    const [v1, v2] = edge.adjacentVertices;
+    if (coastalSet.has(v1) && coastalSet.has(v2)) {
+      if (!adj[v1].includes(v2)) adj[v1].push(v2);
+      if (!adj[v2].includes(v1)) adj[v2].push(v1);
+    }
+  }
 
-  if (coastalVertices.length === 0 || portConfigs.length === 0) return;
+  // Walk the ring starting from any coastal vertex
+  const start = [...coastalSet][0];
+  const ordered = [start];
+  const visited = new Set([start]);
+  let prev = null;
+  let current = start;
 
-  // Distribute ports evenly along coastal vertices
-  const step = Math.floor(coastalVertices.length / portConfigs.length);
+  for (let i = 0; i < coastalSet.size * 2; i++) {
+    const next = (adj[current] || []).find(n => !visited.has(n));
+    if (!next) break;
+    ordered.push(next);
+    visited.add(next);
+    prev = current;
+    current = next;
+  }
+
+  return ordered;
+}
+
+// Assign ports to pairs of adjacent coastal vertices evenly around the perimeter.
+function assignPorts(tiles, vertices, edges, portConfigs) {
+  const ordered = perimeterWalk(vertices, edges);
+  if (ordered.length === 0 || portConfigs.length === 0) return;
+
   const shuffledPorts = shuffle(portConfigs);
+  const n = ordered.length;
+  const step = Math.floor(n / shuffledPorts.length);
 
   for (let i = 0; i < shuffledPorts.length; i++) {
-    const idx = (i * step) % coastalVertices.length;
-    const v = coastalVertices[idx];
-    if (!v.port) {
-      const portData = { ...shuffledPorts[i], portId: `port_${i}` };
-      v.port = portData;
-      const nextIdx = (idx + 1) % coastalVertices.length;
-      const v2 = coastalVertices[nextIdx];
-      if (!v2.port) v2.port = portData;
-    }
+    const idx = (i * step) % n;
+    const vk1 = ordered[idx];
+    const vk2 = ordered[(idx + 1) % n];
+    const portData = { ...shuffledPorts[i], portId: `port_${i}` };
+    vertices[vk1].port = portData;
+    vertices[vk2].port = portData;
   }
 }
 
@@ -247,7 +275,7 @@ export function generateBoard(playerCount) {
   const { vertices, edges } = buildGraph(tiles);
 
   // Assign ports
-  assignPorts(tiles, vertices, config.ports);
+  assignPorts(tiles, vertices, edges, config.ports);
 
   return { tiles, vertices, edges };
 }

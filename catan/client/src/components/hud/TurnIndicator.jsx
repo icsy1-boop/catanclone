@@ -8,6 +8,7 @@ const PHASE_LABELS = {
   SETUP_PLACE_SETTLEMENT: 'Place settlement',
   SETUP_PLACE_ROAD: 'Place road',
   ROLL_OR_PLAY_DEV: 'Roll dice',
+  DISCARD_RESOURCES: 'Discarding…',
   ROBBER_MOVE: 'Move the robber',
   ROBBER_STEAL: 'Choose player to steal from',
   ROAD_BUILDING_1: 'Place free road (1/2)',

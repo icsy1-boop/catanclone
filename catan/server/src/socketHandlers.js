@@ -136,31 +136,27 @@ export function registerHandlers(io, socket) {
     const total = d1 + d2;
     gs.lastRoll = [d1, d2];
 
+    const pName = currentPlayer(gs).name;
+    gs.log.push(`${pName} rolled a ${total}`);
+
     if (total === 7) {
-      // Discard phase: players with >7 cards must discard half (simplified: auto-discard random)
+      const discardNeeded = {};
       for (const [pid, player] of Object.entries(gs.players)) {
-        const total = player.totalResources();
-        if (total > 7) {
-          const toDiscard = Math.floor(total / 2);
-          let discarded = 0;
-          const hand = [];
-          for (const [res, cnt] of Object.entries(player.resources)) {
-            for (let i = 0; i < cnt; i++) hand.push(res);
-          }
-          // Shuffle and remove
-          for (let i = hand.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [hand[i], hand[j]] = [hand[j], hand[i]];
-          }
-          for (let i = 0; i < toDiscard; i++) player.resources[hand[i]]--;
-        }
+        const count = player.totalResources();
+        if (count > 7) discardNeeded[pid] = Math.floor(count / 2);
       }
-      gs.turnPhase = TurnPhase.ROBBER_MOVE;
+      if (Object.keys(discardNeeded).length > 0) {
+        gs.discardNeeded = discardNeeded;
+        gs.turnPhase = TurnPhase.DISCARD_RESOURCES;
+      } else {
+        gs.turnPhase = TurnPhase.ROBBER_MOVE;
+      }
       broadcast(io, roomCode, 'dice_rolled', { roll: [d1, d2], total, playerId: socket.id });
       broadcastState(io, room);
     } else {
       distributeResources(gs, total);
       gs.turnPhase = TurnPhase.MAIN;
+      gs.turnStartTime = Date.now();
       broadcast(io, roomCode, 'dice_rolled', { roll: [d1, d2], total, playerId: socket.id });
       broadcastState(io, room);
     }
@@ -199,7 +195,9 @@ export function registerHandlers(io, socket) {
     if (gs.turnPhase !== TurnPhase.ROBBER_STEAL) return err(socket, 'Wrong phase');
     if (!(gs._robberTargets || []).includes(targetPlayerId)) return err(socket, 'Invalid target');
 
+    const stolenFrom = gs.players[targetPlayerId];
     stealResource(gs, targetPlayerId, socket.id);
+    gs.log.push(`${currentPlayer(gs).name} stole from ${stolenFrom.name}`);
     gs._robberTargets = null;
     gs.turnPhase = gs._postRobberPhase || TurnPhase.MAIN;
     gs._postRobberPhase = null;
@@ -225,7 +223,8 @@ export function registerHandlers(io, socket) {
     }
 
     updateLongestRoad(gs);
-    finishBuildAction(io, room, socket);
+    const pn = gs.players[socket.id].name;
+    finishBuildAction(io, room, socket, `${pn} built a road`);
   });
 
   socket.on('build_settlement', ({ roomCode, vertexId }) => {
@@ -241,7 +240,7 @@ export function registerHandlers(io, socket) {
     const result = placeSettlement(gs, socket.id, vertexId, false);
     if (result.error) return err(socket, result.error);
 
-    finishBuildAction(io, room, socket);
+    finishBuildAction(io, room, socket, `${player.name} built a settlement`);
   });
 
   socket.on('build_city', ({ roomCode, vertexId }) => {
@@ -257,7 +256,7 @@ export function registerHandlers(io, socket) {
     const result = upgradeToCity(gs, socket.id, vertexId);
     if (result.error) return err(socket, result.error);
 
-    finishBuildAction(io, room, socket);
+    finishBuildAction(io, room, socket, `${player.name} upgraded to a city`);
   });
 
   socket.on('buy_dev_card', ({ roomCode }) => {
@@ -274,6 +273,7 @@ export function registerHandlers(io, socket) {
     player.deductResources(BUILD_COSTS.DEV_CARD);
     const card = gs.devCardDeck.draw();
     player.newDevCards.push(card);
+    gs.log.push(`${player.name} bought a dev card`);
 
     broadcastState(io, room);
   });
@@ -336,6 +336,7 @@ export function registerHandlers(io, socket) {
       player.resources[resource] = (player.resources[resource] || 0) + amount;
     }
 
+    gs.log.push(`${player.name} played Monopoly on ${resource}`);
     broadcastState(io, room);
   });
 
@@ -355,6 +356,7 @@ export function registerHandlers(io, socket) {
     player.resources[resource1] = (player.resources[resource1] || 0) + 1;
     player.resources[resource2] = (player.resources[resource2] || 0) + 1;
 
+    gs.log.push(`${player.name} played Year of Plenty`);
     broadcastState(io, room);
   });
 
@@ -386,6 +388,7 @@ export function registerHandlers(io, socket) {
     if (!assertTurn(socket, gs, socket.id)) return;
     const result = confirmTrade(gs, tradeId, counterpartyId);
     if (result.error) return err(socket, result.error);
+    gs.log.push(`${currentPlayer(gs).name} traded with ${gs.players[counterpartyId]?.name}`);
     broadcastState(io, room);
   });
 
@@ -405,8 +408,48 @@ export function registerHandlers(io, socket) {
 
     const result = executePortTrade(gs, socket.id, give, want);
     if (result.error) return err(socket, result.error);
-
+    gs.log.push(`${gs.players[socket.id].name} traded with the bank`);
     broadcastState(io, room);
+  });
+
+  socket.on('discard_resources', ({ roomCode, resources }) => {
+    const room = getRoom(roomCode);
+    if (!room?.gameState) return err(socket, 'No game');
+    const gs = room.gameState;
+    if (gs.turnPhase !== TurnPhase.DISCARD_RESOURCES) return err(socket, 'Wrong phase');
+    const needed = gs.discardNeeded?.[socket.id];
+    if (!needed) return err(socket, 'You don\'t need to discard');
+
+    let total = 0;
+    for (const amt of Object.values(resources)) total += (amt || 0);
+    if (total !== needed) return err(socket, `Must discard exactly ${needed} resources`);
+
+    const player = gs.players[socket.id];
+    for (const [res, amt] of Object.entries(resources)) {
+      if ((player.resources[res] || 0) < (amt || 0)) return err(socket, `Not enough ${res}`);
+    }
+    for (const [res, amt] of Object.entries(resources)) {
+      player.resources[res] -= (amt || 0);
+    }
+
+    gs.log.push(`${player.name} discarded ${needed} cards`);
+    delete gs.discardNeeded[socket.id];
+    if (Object.keys(gs.discardNeeded).length === 0) {
+      gs.discardNeeded = null;
+      gs.turnPhase = TurnPhase.ROBBER_MOVE;
+    }
+    broadcastState(io, room);
+  });
+
+  socket.on('chat_message', ({ roomCode, text }) => {
+    const room = getRoom(roomCode);
+    if (!room) return;
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player) return;
+    const msg = { name: player.name, text: text.slice(0, 200), ts: Date.now() };
+    room.chat.push(msg);
+    if (room.chat.length > 100) room.chat.shift();
+    io.to(roomCode).emit('chat_message', msg);
   });
 
   socket.on('end_turn', ({ roomCode }) => {
@@ -429,12 +472,14 @@ export function registerHandlers(io, socket) {
   });
 }
 
-function finishBuildAction(io, room, socket) {
+function finishBuildAction(io, room, socket, logMsg) {
   const gs = room.gameState;
+  if (logMsg) gs.log.push(logMsg);
   const winner = checkWin(gs);
   if (winner) {
     gs.winner = winner;
     gs.turnPhase = TurnPhase.GAME_OVER;
+    gs.log.push(`🏆 ${gs.players[winner].name} wins!`);
   }
   broadcastState(io, room);
 }
