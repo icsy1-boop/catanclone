@@ -11,14 +11,12 @@ function RequireRoom({ children }) {
 }
 
 export default function App() {
-  useSocket(); // registers all socket event listeners
+  useSocket();
 
   return (
     <Routes>
       <Route path="/" element={<LandingPage />} />
-      <Route path="/room/:code" element={
-        <RequireRoom><RoomLobby /></RequireRoom>
-      } />
+      <Route path="/room/:code" element={<RoomLobby />} />
       <Route path="/game/:code" element={
         <RequireRoom><GamePage /></RequireRoom>
       } />
