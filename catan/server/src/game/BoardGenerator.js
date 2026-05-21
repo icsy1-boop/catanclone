@@ -174,11 +174,11 @@ function assignPorts(tiles, vertices, portConfigs) {
     const idx = (i * step) % coastalVertices.length;
     const v = coastalVertices[idx];
     if (!v.port) {
-      v.port = shuffledPorts[i];
-      // Also assign to an adjacent coastal vertex to make a 2-vertex port
+      const portData = { ...shuffledPorts[i], portId: `port_${i}` };
+      v.port = portData;
       const nextIdx = (idx + 1) % coastalVertices.length;
       const v2 = coastalVertices[nextIdx];
-      if (!v2.port) v2.port = shuffledPorts[i];
+      if (!v2.port) v2.port = portData;
     }
   }
 }

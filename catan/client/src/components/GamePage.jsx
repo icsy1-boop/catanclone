@@ -7,6 +7,7 @@ import DiceDisplay from './hud/DiceDisplay.jsx';
 import TurnIndicator from './hud/TurnIndicator.jsx';
 import ActionBar from './hud/ActionBar.jsx';
 import TradeModal from './modals/TradeModal.jsx';
+import TradeNotification from './modals/TradeNotification.jsx';
 import StealModal from './modals/StealModal.jsx';
 import MonopolyModal from './modals/MonopolyModal.jsx';
 import YearOfPlentyModal from './modals/YearOfPlentyModal.jsx';
@@ -64,6 +65,9 @@ export default function GamePage() {
           </div>
         </div>
       )}
+
+      {/* Always-visible trade notification panel */}
+      <TradeNotification />
 
       {/* Modals */}
       {modal === 'TRADE' && <TradeModal onClose={closeModal} />}

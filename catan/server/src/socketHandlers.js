@@ -4,7 +4,7 @@ import {
 import { createGame, serializePublic, distributeResources, placeSettlement, placeRoad, upgradeToCity } from './game/GameState.js';
 import { TurnPhase, advanceTurn, advanceSetupTurn, BUILD_COSTS } from './game/TurnStateMachine.js';
 import { moveRobber, getStealTargets, stealResource } from './game/RobberManager.js';
-import { createOffer, acceptOffer, cancelOffer, executePortTrade } from './game/TradeManager.js';
+import { createOffer, respondOffer, confirmTrade, cancelOffer, executePortTrade } from './game/TradeManager.js';
 import { checkWin, updateLongestRoad, updateLargestArmy } from './game/VictoryChecker.js';
 import { rollDice } from './utils/dice.js';
 
@@ -369,14 +369,23 @@ export function registerHandlers(io, socket) {
     broadcastState(io, room);
   });
 
-  socket.on('accept_trade', ({ roomCode, tradeId }) => {
+  // Any non-active player records accept/decline (does not execute trade).
+  socket.on('respond_trade', ({ roomCode, tradeId, response }) => {
+    const room = getRoom(roomCode);
+    if (!room?.gameState) return err(socket, 'No game');
+    const result = respondOffer(room.gameState, tradeId, socket.id, response);
+    if (result.error) return err(socket, result.error);
+    broadcastState(io, room);
+  });
+
+  // Active player picks which accepting player to trade with.
+  socket.on('confirm_trade', ({ roomCode, tradeId, counterpartyId }) => {
     const room = getRoom(roomCode);
     if (!room?.gameState) return err(socket, 'No game');
     const gs = room.gameState;
-
-    const result = acceptOffer(gs, tradeId, socket.id);
+    if (!assertTurn(socket, gs, socket.id)) return;
+    const result = confirmTrade(gs, tradeId, counterpartyId);
     if (result.error) return err(socket, result.error);
-
     broadcastState(io, room);
   });
 

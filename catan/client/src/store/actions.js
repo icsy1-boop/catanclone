@@ -29,7 +29,8 @@ export const actions = {
     socket.emit('play_year_of_plenty', { roomCode: getCode(), resource1: r1, resource2: r2 }),
 
   offerTrade: (give, want) => socket.emit('offer_trade', { roomCode: getCode(), give, want }),
-  acceptTrade: (tradeId) => socket.emit('accept_trade', { roomCode: getCode(), tradeId }),
+  respondTrade: (tradeId, response) => socket.emit('respond_trade', { roomCode: getCode(), tradeId, response }),
+  confirmTrade: (tradeId, counterpartyId) => socket.emit('confirm_trade', { roomCode: getCode(), tradeId, counterpartyId }),
   cancelTrade: (tradeId) => socket.emit('cancel_trade', { roomCode: getCode(), tradeId }),
   portTrade: (give, want) => socket.emit('port_trade', { roomCode: getCode(), give, want }),
 

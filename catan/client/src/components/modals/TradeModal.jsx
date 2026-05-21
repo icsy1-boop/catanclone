@@ -29,49 +29,15 @@ function ResourcePicker({ label, values, onChange, maxValues }) {
   );
 }
 
-function TradeOfferRow({ offer, gameState, playerId, isMyOffer }) {
-  const from = gameState.players[offer.fromPlayerId];
-  const hasAny = (obj) => Object.values(obj).some(v => v > 0);
-  return (
-    <div style={{
-      background: '#0f3460', borderRadius: 8, padding: 12, marginBottom: 8,
-    }}>
-      <div style={{ fontSize: 13, color: '#aaa', marginBottom: 6 }}>
-        {isMyOffer ? 'Your offer' : `${from?.name} offers:`}
-      </div>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
-        <span style={{ color: '#e74c3c', fontSize: 12 }}>Gives: </span>
-        {Object.entries(offer.give).filter(([, v]) => v > 0).map(([r, v]) => (
-          <span key={r} style={{ color: RESOURCE_COLORS[r], fontSize: 12 }}>{v}× {RESOURCE_LABELS[r]}</span>
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-        <span style={{ color: '#2ecc71', fontSize: 12 }}>Wants: </span>
-        {Object.entries(offer.want).filter(([, v]) => v > 0).map(([r, v]) => (
-          <span key={r} style={{ color: RESOURCE_COLORS[r], fontSize: 12 }}>{v}× {RESOURCE_LABELS[r]}</span>
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: 8 }}>
-        {isMyOffer
-          ? <Button onClick={() => actions.cancelTrade(offer.id)} variant="danger">Cancel</Button>
-          : <Button onClick={() => actions.acceptTrade(offer.id)}>Accept</Button>
-        }
-      </div>
-    </div>
-  );
-}
-
 export default function TradeModal({ onClose }) {
-  const { gameState, playerId, myResources } = useGameStore();
+  const { gameState, myResources } = useGameStore();
   const [give, setGive] = useState({});
   const [want, setWant] = useState({});
-  const [tab, setTab] = useState('player'); // 'player' | 'port'
+  const [tab, setTab] = useState('player');
 
   if (!gameState) return null;
 
-  const pending = gameState.pendingTrades ? Object.values(gameState.pendingTrades) : [];
   const hasOffer = () => Object.values(give).some(v => v > 0) && Object.values(want).some(v => v > 0);
-
   const setGiveR = (r, v) => setGive(prev => ({ ...prev, [r]: v }));
   const setWantR = (r, v) => setWant(prev => ({ ...prev, [r]: v }));
 
@@ -91,15 +57,10 @@ export default function TradeModal({ onClose }) {
 
       {tab === 'player' ? (
         <>
-          {pending.length > 0 && (
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 13, color: '#aaa', marginBottom: 8 }}>Active offers:</div>
-              {pending.map(offer => (
-                <TradeOfferRow key={offer.id} offer={offer} gameState={gameState}
-                  playerId={playerId} isMyOffer={offer.fromPlayerId === playerId} />
-              ))}
-            </div>
-          )}
+          <p style={{ fontSize: 12, color: '#aaa', marginBottom: 12 }}>
+            Set your offer below. Other players will see it and can accept or decline.
+            You then choose who to trade with.
+          </p>
           <ResourcePicker label="You give" values={give} onChange={setGiveR} maxValues={myResources} />
           <div style={{ marginTop: 12 }}>
             <ResourcePicker label="You want" values={want} onChange={setWantR} />

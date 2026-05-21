@@ -1,9 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
 import { RESOURCES } from './Player.js';
 
-// Get the best port ratio a player has for a given resource.
 export function getPortRatio(board, playerId, resource) {
-  let ratio = 4; // default bank trade
+  let ratio = 4;
   for (const vertex of Object.values(board.vertices)) {
     if (!vertex.building || vertex.building.playerId !== playerId) continue;
     if (!vertex.port) continue;
@@ -14,7 +13,6 @@ export function getPortRatio(board, playerId, resource) {
   return ratio;
 }
 
-// Execute a port/bank trade.
 export function executePortTrade(gameState, playerId, give, want) {
   const player = gameState.players[playerId];
   if (!player) return { error: 'Player not found' };
@@ -33,7 +31,6 @@ export function executePortTrade(gameState, playerId, give, want) {
   return { ok: true };
 }
 
-// Create a trade offer.
 export function createOffer(gameState, fromPlayerId, give, want) {
   const id = uuidv4();
   const offer = { id, fromPlayerId, give, want, status: 'pending', responses: {} };
@@ -42,15 +39,25 @@ export function createOffer(gameState, fromPlayerId, give, want) {
   return offer;
 }
 
-export function acceptOffer(gameState, tradeId, byPlayerId) {
+// Non-active player records their response (does NOT execute the trade).
+export function respondOffer(gameState, tradeId, byPlayerId, response) {
   const offer = gameState.pendingTrades?.[tradeId];
   if (!offer || offer.status !== 'pending') return { error: 'Trade not found' };
+  if (byPlayerId === offer.fromPlayerId) return { error: 'Cannot respond to your own offer' };
+  offer.responses[byPlayerId] = response; // 'accepted' | 'declined'
+  return { ok: true };
+}
+
+// Active player confirms trade with a specific player who accepted.
+export function confirmTrade(gameState, tradeId, counterpartyId) {
+  const offer = gameState.pendingTrades?.[tradeId];
+  if (!offer || offer.status !== 'pending') return { error: 'Trade not found' };
+  if (offer.responses[counterpartyId] !== 'accepted') return { error: 'Player has not accepted' };
 
   const from = gameState.players[offer.fromPlayerId];
-  const by = gameState.players[byPlayerId];
+  const by = gameState.players[counterpartyId];
   if (!from || !by) return { error: 'Player not found' };
 
-  // Validate both sides can afford
   for (const [res, amt] of Object.entries(offer.give)) {
     if ((from.resources[res] || 0) < (amt || 0)) return { error: `${from.name} can't afford trade` };
   }
@@ -58,7 +65,6 @@ export function acceptOffer(gameState, tradeId, byPlayerId) {
     if ((by.resources[res] || 0) < (amt || 0)) return { error: `${by.name} can't afford trade` };
   }
 
-  // Execute exchange
   for (const [res, amt] of Object.entries(offer.give)) {
     from.resources[res] -= (amt || 0);
     by.resources[res] = (by.resources[res] || 0) + (amt || 0);
