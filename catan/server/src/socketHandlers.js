@@ -480,6 +480,47 @@ export function registerHandlers(io, socket) {
     io.to(roomCode).emit('chat_message', msg);
   });
 
+  socket.on('leave_game', ({ roomCode }) => {
+    const room = getRoom(roomCode);
+    if (!room?.gameState) return;
+    const gs = room.gameState;
+    const playerId = getPlayerId(room, socket.id);
+    const player = gs.players[playerId];
+    if (!player) return;
+
+    const wasTheirTurn = currentPlayer(gs)?.id === playerId;
+    const idx = gs.turnOrder.indexOf(playerId);
+
+    // Remove from turn order and players
+    gs.turnOrder.splice(idx, 1);
+    delete gs.players[playerId];
+    if (room.socketMap) delete room.socketMap[playerId];
+
+    gs.log.push(`${player.name} left the game`);
+    socket.emit('you_left');
+
+    if (gs.turnOrder.length < 2) {
+      // Not enough players — end the game
+      const remaining = gs.turnOrder[0];
+      gs.winner = remaining || null;
+      gs.turnPhase = TurnPhase.GAME_OVER;
+      if (remaining) gs.log.push(`🏆 ${gs.players[remaining]?.name} wins by default!`);
+      broadcastState(io, room);
+    } else {
+      if (wasTheirTurn) {
+        // Advance to the player now at this index (or wrap)
+        gs.currentPlayerIndex = idx % gs.turnOrder.length;
+        gs.turnPhase = TurnPhase.ROLL_OR_PLAY_DEV;
+        gs.turnStartTime = Date.now();
+        gs.pendingTrades = {};
+      } else if (idx < gs.currentPlayerIndex) {
+        // Adjust index since we removed someone before current
+        gs.currentPlayerIndex = Math.max(0, gs.currentPlayerIndex - 1);
+      }
+      broadcastState(io, room);
+    }
+  });
+
   socket.on('end_turn', ({ roomCode }) => {
     const room = getRoom(roomCode);
     if (!room?.gameState) return err(socket, 'No game');

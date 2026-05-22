@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 
-// 3D CSS cube die — adapted from html5-yahtzee-dice approach
+// 3D CSS cube die
 const SIZE = 46;
 const HALF = SIZE / 2;
 
-// Which cube rotation shows each face value
 const CUBE_TRANSFORM = {
   1: 'rotateX(0deg)',
   2: 'rotateX(90deg)',
@@ -14,7 +13,6 @@ const CUBE_TRANSFORM = {
   6: 'rotateX(-180deg)',
 };
 
-// Placement of each face (face order: 1,2,3,4,5,6)
 const FACE_PLACEMENT = [
   `rotateX(0deg) translateZ(${HALF}px)`,
   `rotateX(-90deg) translateZ(${HALF}px)`,
@@ -34,9 +32,6 @@ const PIP_POS = {
 };
 
 const PIP_R = SIZE * 0.088;
-
-const diceAudio = typeof Audio !== 'undefined' ? new Audio('/sounds/dice.wav') : null;
-if (diceAudio) diceAudio.volume = 0.55;
 
 function DieFace({ faceValue }) {
   const isRed = faceValue === 6;
@@ -102,11 +97,6 @@ export default function DiceDisplay({ lastRoll }) {
 
     setRolling(true);
     setDisplayed([Math.ceil(Math.random() * 6), Math.ceil(Math.random() * 6)]);
-
-    if (diceAudio) {
-      diceAudio.currentTime = 0;
-      diceAudio.play().catch(() => {});
-    }
 
     let tick = 0;
     clearInterval(tickRef.current);

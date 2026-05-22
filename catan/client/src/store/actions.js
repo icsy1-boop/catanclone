@@ -37,4 +37,5 @@ export const actions = {
   endTurn: () => socket.emit('end_turn', { roomCode: getCode() }),
   discardResources: (resources) => socket.emit('discard_resources', { roomCode: getCode(), resources }),
   sendChat: (text) => socket.emit('chat_message', { roomCode: getCode(), text }),
+  leaveGame: () => socket.emit('leave_game', { roomCode: getCode() }),
 };

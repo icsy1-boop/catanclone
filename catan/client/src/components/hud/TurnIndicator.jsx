@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '../../store/gameStore.js';
 import { actions } from '../../store/actions.js';
+import { playDice } from '../../utils/sounds.js';
 
-const TURN_SECONDS = 90;
+const ROLL_SECONDS = 5;   // time to roll before auto-roll
+const MAIN_SECONDS = 90;  // time per main-phase turn
 
 const PHASE_LABELS = {
   SETUP_PLACE_SETTLEMENT: 'Place settlement',
@@ -19,19 +21,27 @@ const PHASE_LABELS = {
 
 export default function TurnIndicator({ gameState }) {
   const { playerId } = useGameStore();
-  const [secondsLeft, setSecondsLeft] = useState(TURN_SECONDS);
+  const [secondsLeft, setSecondsLeft] = useState(null);
   const [pulse, setPulse] = useState(false);
   const prevIsMe = useRef(false);
+  const prevTurnStart = useRef(null);
 
   const currentPid = gameState.turnOrder[gameState.currentPlayerIndex];
   const currentPlayer = gameState.players[currentPid];
   const isMe = currentPid === playerId;
   const isMainGame = gameState.phase === 'MAIN';
 
-  // Pulse when it becomes your turn
+  const isRollPhase = gameState.turnPhase === 'ROLL_OR_PLAY_DEV';
+  const isMainPhase = gameState.turnPhase === 'MAIN';
+  const showTimer = isMainGame && isMe && (isRollPhase || isMainPhase);
+
+  const totalSeconds = isRollPhase ? ROLL_SECONDS : MAIN_SECONDS;
+
+  // Play sound + pulse when it becomes your turn
   useEffect(() => {
     if (isMe && !prevIsMe.current) {
       setPulse(true);
+      playDice();
       const t = setTimeout(() => setPulse(false), 2400);
       prevIsMe.current = true;
       return () => clearTimeout(t);
@@ -39,23 +49,38 @@ export default function TurnIndicator({ gameState }) {
     if (!isMe) prevIsMe.current = false;
   }, [isMe]);
 
+  // Countdown timer — resets when turnStartTime changes or phase changes
   useEffect(() => {
-    if (!isMainGame || !gameState.turnStartTime) return;
+    if (!showTimer || !gameState.turnStartTime) return;
+
     const tick = () => {
       const elapsed = Math.floor((Date.now() - gameState.turnStartTime) / 1000);
-      const left = Math.max(0, TURN_SECONDS - elapsed);
+      const left = Math.max(0, totalSeconds - elapsed);
       setSecondsLeft(left);
-      if (left === 0 && isMe && gameState.turnPhase === 'MAIN') {
-        actions.endTurn();
+
+      if (left === 0) {
+        if (isRollPhase) {
+          actions.rollDice();
+        } else if (isMainPhase) {
+          actions.endTurn();
+        }
       }
     };
     tick();
-    const id = setInterval(tick, 1000);
+    const id = setInterval(tick, 500);
     return () => clearInterval(id);
-  }, [gameState.turnStartTime, isMainGame, isMe, gameState.turnPhase]);
+  }, [gameState.turnStartTime, gameState.turnPhase, showTimer, totalSeconds]);
 
-  const timerColor = secondsLeft < 15 ? '#e74c3c' : secondsLeft < 30 ? '#f39c12' : '#aaa';
-  const pct = secondsLeft / TURN_SECONDS;
+  // Reset displayed seconds when not showing timer
+  useEffect(() => {
+    if (!showTimer) setSecondsLeft(null);
+  }, [showTimer]);
+
+  const sLeft = secondsLeft ?? totalSeconds;
+  const timerColor = isRollPhase
+    ? (sLeft <= 2 ? '#e74c3c' : sLeft <= 4 ? '#f39c12' : '#aaa')
+    : (sLeft < 15 ? '#e74c3c' : sLeft < 30 ? '#f39c12' : '#aaa');
+  const pct = sLeft / totalSeconds;
   const r = 10;
   const circ = 2 * Math.PI * r;
   const borderColor = pulse ? '#ffe000' : isMe ? '#f39c12' : 'rgba(255,255,255,0.1)';
@@ -85,14 +110,14 @@ export default function TurnIndicator({ gameState }) {
           </span>
         </div>
 
-        {isMainGame && (
+        {showTimer && secondsLeft !== null && (
           <div style={{ position: 'relative', width: 28, height: 28, flexShrink: 0 }}>
             <svg width={28} height={28} style={{ transform: 'rotate(-90deg)' }}>
               <circle cx={14} cy={14} r={r} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth={3} />
               <circle cx={14} cy={14} r={r} fill="none" stroke={timerColor} strokeWidth={3}
                 strokeDasharray={circ} strokeDashoffset={circ * (1 - pct)}
                 strokeLinecap="round"
-                style={{ transition: 'stroke-dashoffset 0.9s linear, stroke 0.3s' }} />
+                style={{ transition: 'stroke-dashoffset 0.45s linear, stroke 0.3s' }} />
             </svg>
             <span style={{
               position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',

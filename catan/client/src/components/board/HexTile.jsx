@@ -2,7 +2,6 @@ import { hexCornerPixels } from '../../utils/hexMath.js';
 
 const DOT_COUNTS = { 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 8: 5, 9: 4, 10: 3, 11: 2, 12: 1 };
 
-// Gradient stops per terrain: [base, light, dark]
 const TERRAIN_GRADIENT = {
   FOREST:   ['#1c5c30', '#2a7a40', '#0e3a1c'],
   HILLS:    ['#a0522d', '#c1763f', '#7a3318'],
@@ -11,6 +10,16 @@ const TERRAIN_GRADIENT = {
   PASTURE:  ['#6aad2e', '#88cc40', '#4c8a20'],
   DESERT:   ['#c8ad7a', '#dfc896', '#a88c58'],
   WATER:    ['#1565c0', '#1e88e5', '#0d47a1'],
+};
+
+// SVG texture files — A4 plotter sheet overlaid at low opacity for texture
+const TERRAIN_TEXTURE = {
+  FOREST:   '/textures/wood.svg',
+  HILLS:    '/textures/brick.svg',
+  MOUNTAINS:'/textures/ore.svg',
+  FIELDS:   '/textures/wheat.svg',
+  PASTURE:  '/textures/wool.svg',
+  DESERT:   '/textures/ore.svg',
 };
 
 const TERRAIN_ICON = {
@@ -29,8 +38,10 @@ export default function HexTile({ tile, cx, cy, size, isLegalRobber, onClick }) 
   const dots = tile.numberToken ? (DOT_COUNTS[tile.numberToken] || 0) : 0;
   const dotR = size * 0.028;
   const dotGap = size * 0.075;
-  const gradId = `terrain-${tile.id}`;
+  const gradId = `tgrad-${tile.id}`;
+  const clipId = `thex-${tile.id}`;
   const [base, light, dark] = TERRAIN_GRADIENT[tile.terrain] || ['#555', '#777', '#333'];
+  const texSrc = TERRAIN_TEXTURE[tile.terrain];
 
   return (
     <g onClick={isLegalRobber ? onClick : undefined}
@@ -41,17 +52,33 @@ export default function HexTile({ tile, cx, cy, size, isLegalRobber, onClick }) 
           <stop offset="55%" stopColor={base} />
           <stop offset="100%" stopColor={dark} />
         </radialGradient>
+        <clipPath id={clipId}>
+          <polygon points={points} />
+        </clipPath>
       </defs>
-      <polygon
-        points={points}
-        fill={`url(#${gradId})`}
-        stroke="#111"
-        strokeWidth={1.5}
-      />
+
+      {/* Base gradient fill */}
+      <polygon points={points} fill={`url(#${gradId})`} stroke="#111" strokeWidth={1.5} />
+
+      {/* SVG texture overlay — clipped to hex shape, multiply blend */}
+      {texSrc && (
+        <image
+          href={texSrc}
+          x={cx - size * 1.1}
+          y={cy - size * 1.1}
+          width={size * 2.2}
+          height={size * 2.2}
+          preserveAspectRatio="xMidYMid slice"
+          clipPath={`url(#${clipId})`}
+          opacity={0.18}
+          style={{ mixBlendMode: 'multiply' }}
+        />
+      )}
 
       {/* Terrain icon */}
       {TERRAIN_ICON[tile.terrain] && (
-        <text x={cx} y={cy + (tile.numberToken ? -size * 0.26 : size * 0.08)}
+        <text
+          x={cx} y={cy + (tile.numberToken ? -size * 0.26 : size * 0.08)}
           textAnchor="middle" dominantBaseline="middle"
           fontSize={size * (tile.terrain === 'FIELDS' ? 0.28 : 0.32)}
           style={{ userSelect: 'none', pointerEvents: 'none' }}>

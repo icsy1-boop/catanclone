@@ -1,11 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '../../store/gameStore.js';
 import { actions } from '../../store/actions.js';
 import { RESOURCES, RESOURCE_COLORS, RESOURCE_LABELS } from '../../constants/resources.js';
 
+const DISCARD_TIMEOUT = 30;
+
 export default function DiscardModal({ mustDiscard }) {
   const { myResources } = useGameStore();
   const [selected, setSelected] = useState({});
+  const [secondsLeft, setSecondsLeft] = useState(DISCARD_TIMEOUT);
+  const startRef = useRef(Date.now());
 
   const total = RESOURCES.reduce((s, r) => s + (selected[r] || 0), 0);
   const remaining = mustDiscard - total;
@@ -21,9 +25,44 @@ export default function DiscardModal({ mustDiscard }) {
     setSelected(prev => ({ ...prev, [r]: prev[r] - 1 }));
   };
 
-  const confirm = () => {
-    if (total === mustDiscard) actions.discardResources(selected);
+  const confirm = (overrideSelected) => {
+    const toSend = overrideSelected || selected;
+    if (RESOURCES.reduce((s, r) => s + (toSend[r] || 0), 0) === mustDiscard) {
+      actions.discardResources(toSend);
+    }
   };
+
+  // Auto-discard timer — randomly select resources when time runs out
+  useEffect(() => {
+    startRef.current = Date.now();
+    const id = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startRef.current) / 1000);
+      const left = Math.max(0, DISCARD_TIMEOUT - elapsed);
+      setSecondsLeft(left);
+      if (left === 0) {
+        clearInterval(id);
+        // Build random discard selection from available resources
+        const pool = [];
+        RESOURCES.forEach(r => {
+          for (let i = 0; i < (myResources?.[r] || 0); i++) pool.push(r);
+        });
+        // Shuffle and pick mustDiscard
+        for (let i = pool.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [pool[i], pool[j]] = [pool[j], pool[i]];
+        }
+        const autoSelected = {};
+        pool.slice(0, mustDiscard).forEach(r => {
+          autoSelected[r] = (autoSelected[r] || 0) + 1;
+        });
+        confirm(autoSelected);
+      }
+    }, 500);
+    return () => clearInterval(id);
+  }, [mustDiscard]);
+
+  const timerColor = secondsLeft <= 5 ? '#e74c3c' : secondsLeft <= 10 ? '#f39c12' : '#aaa';
+  const handTotal = myResources ? RESOURCES.reduce((s, r) => s + (myResources[r] || 0), 0) : 0;
 
   return (
     <div style={{
@@ -34,10 +73,12 @@ export default function DiscardModal({ mustDiscard }) {
         background: '#16213e', borderRadius: 14, padding: 28, width: 360,
         border: '2px solid #e74c3c',
       }}>
-        <h3 style={{ color: '#e74c3c', marginBottom: 6 }}>Discard Resources</h3>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+          <h3 style={{ color: '#e74c3c', margin: 0 }}>Discard Resources</h3>
+          <span style={{ fontSize: 13, fontWeight: 700, color: timerColor }}>{secondsLeft}s</span>
+        </div>
         <p style={{ color: '#aaa', fontSize: 13, marginBottom: 20 }}>
-          You rolled a 7 with {(myResources ? RESOURCES.reduce((s,r) => s+(myResources[r]||0), 0) : 0)} cards.
-          Choose {mustDiscard} to discard. ({remaining} remaining)
+          You rolled a 7 with {handTotal} cards. Choose {mustDiscard} to discard. ({remaining} remaining)
         </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
@@ -62,7 +103,7 @@ export default function DiscardModal({ mustDiscard }) {
         </div>
 
         <button
-          onClick={confirm}
+          onClick={() => confirm()}
           disabled={total !== mustDiscard}
           style={{
             width: '100%', padding: 12, borderRadius: 8, border: 'none',

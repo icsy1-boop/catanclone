@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useGamePhase } from '../../hooks/useGamePhase.js';
 import { useUIStore } from '../../store/uiStore.js';
 import { actions } from '../../store/actions.js';
@@ -8,7 +9,8 @@ export default function ActionBar({ onOpenModal }) {
   const { canRoll, canEndTurn, canBuild, isSetupSettlement, isSetupRoad,
     isRobberMove, isRobberSteal, isRoadBuilding, canPlayDevCard, phase, myTurn } = useGamePhase();
   const { selectedAction, setAction, clearAction } = useUIStore();
-  const { myDevCards, myNewDevCards } = useGameStore();
+  const { myDevCards } = useGameStore();
+  const [confirmLeave, setConfirmLeave] = useState(false);
 
   const hasPlayableDevCards = myTurn && canPlayDevCard &&
     Object.entries(myDevCards).some(([k, v]) => v > 0 && k !== 'VP');
@@ -82,6 +84,24 @@ export default function ActionBar({ onOpenModal }) {
             ? Rules
           </Button>
         </>
+      )}
+
+      {/* Leave Game — always visible */}
+      {!confirmLeave ? (
+        <Button onClick={() => setConfirmLeave(true)} variant="ghost"
+          style={{ fontSize: 12, marginLeft: 'auto', color: '#e74c3c', borderColor: 'rgba(231,76,60,0.3)' }}>
+          Leave
+        </Button>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+          <span style={{ fontSize: 12, color: '#e74c3c' }}>Leave game?</span>
+          <Button onClick={actions.leaveGame} variant="danger" style={{ fontSize: 12, padding: '4px 10px' }}>
+            Yes
+          </Button>
+          <Button onClick={() => setConfirmLeave(false)} variant="ghost" style={{ fontSize: 12, padding: '4px 10px' }}>
+            No
+          </Button>
+        </div>
       )}
     </div>
   );

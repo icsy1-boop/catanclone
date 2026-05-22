@@ -38,6 +38,14 @@ export function useSocket() {
 
     socket.on('error', ({ message }) => addToast(message, 'error'));
 
+    socket.on('you_left', () => {
+      sessionStorage.removeItem('catanRoom');
+      sessionStorage.removeItem('catanName');
+      useGameStore.getState().setRoom(null, null, false, []);
+      useGameStore.getState().setGameState(null);
+      navigate('/');
+    });
+
     // Auto-rejoin in-progress game after reconnect
     socket.on('connect', () => {
       const savedRoom = sessionStorage.getItem('catanRoom');
@@ -58,6 +66,7 @@ export function useSocket() {
       socket.off('game_state_update');
       socket.off('your_private_data');
       socket.off('error');
+      socket.off('you_left');
       socket.off('connect');
     };
   }, []);
