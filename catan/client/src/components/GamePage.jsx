@@ -15,6 +15,7 @@ import YearOfPlentyModal from './modals/YearOfPlentyModal.jsx';
 import DevCardModal from './modals/DevCardModal.jsx';
 import DiscardModal from './modals/DiscardModal.jsx';
 import RulesModal from './modals/RulesModal.jsx';
+import ResourceGainPopup from './hud/ResourceGainPopup.jsx';
 import { RESOURCES, RESOURCE_COLORS, RESOURCE_LABELS } from '../constants/resources.js';
 
 function BankPanel({ bankResources }) {
@@ -83,6 +84,9 @@ export default function GamePage() {
 
       {/* Always-visible trade notification panel */}
       <TradeNotification />
+
+      {/* Resource gain popup after dice roll */}
+      <ResourceGainPopup />
 
       {/* Discard overlay — blocks interaction until resolved */}
       {mustDiscard && <DiscardModal mustDiscard={mustDiscard} />}

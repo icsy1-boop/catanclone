@@ -1,5 +1,5 @@
 import {
-  createRoom, joinRoom, getRoom, getRoomByPlayerId, removePlayer,
+  createRoom, joinRoom, getRoom, getRoomByPlayerId, removePlayer, getPlayerId,
 } from './roomManager.js';
 import { createGame, serializePublic, distributeResources, placeSettlement, placeRoad, upgradeToCity } from './game/GameState.js';
 import { TurnPhase, advanceTurn, advanceSetupTurn, BUILD_COSTS } from './game/TurnStateMachine.js';
@@ -16,9 +16,9 @@ function broadcastState(io, room) {
   if (!room.gameState) return;
   const pub = serializePublic(room.gameState);
   broadcast(io, room.code, 'game_state_update', { gameState: pub });
-  // Send private hands to each player
   for (const [pid, player] of Object.entries(room.gameState.players)) {
-    io.to(pid).emit('your_private_data', player.privateView());
+    const currentSocketId = (room.socketMap || {})[pid] || pid;
+    io.to(currentSocketId).emit('your_private_data', player.privateView());
   }
 }
 
@@ -55,9 +55,23 @@ export function registerHandlers(io, socket) {
     const result = joinRoom(roomCode, socket.id, playerName);
     if (result.error) return err(socket, result.error);
     const room = result.room;
-    socket.join(roomCode);
-    socket.emit('room_joined', { playerId: socket.id, players: room.players, isHost: false, roomCode });
-    socket.to(roomCode).emit('player_joined', { players: room.players });
+    socket.join(room.code);
+
+    if (result.reconnected) {
+      const playerId = result.playerId;
+      const pub = serializePublic(room.gameState);
+      socket.emit('room_joined', {
+        playerId,
+        players: room.players,
+        isHost: room.hostId === playerId,
+        roomCode: room.code,
+      });
+      socket.emit('game_started', { gameState: pub });
+      socket.emit('your_private_data', room.gameState.players[playerId].privateView());
+    } else {
+      socket.emit('room_joined', { playerId: socket.id, players: room.players, isHost: false, roomCode: room.code });
+      socket.to(room.code).emit('player_joined', { players: room.players });
+    }
   });
 
   socket.on('start_game', ({ roomCode }) => {
@@ -71,7 +85,8 @@ export function registerHandlers(io, socket) {
     const pub = serializePublic(room.gameState);
     broadcast(io, roomCode, 'game_started', { gameState: pub });
     for (const [pid, player] of Object.entries(room.gameState.players)) {
-      io.to(pid).emit('your_private_data', player.privateView());
+      const sid = (room.socketMap || {})[pid] || pid;
+      io.to(sid).emit('your_private_data', player.privateView());
     }
   });
 
@@ -80,10 +95,11 @@ export function registerHandlers(io, socket) {
     const room = getRoom(roomCode);
     if (!room?.gameState) return err(socket, 'No game');
     const gs = room.gameState;
-    if (!assertTurn(socket, gs, socket.id)) return;
+    const playerId = getPlayerId(room, socket.id);
+    if (!assertTurn(socket, gs, playerId)) return;
     if (gs.turnPhase !== TurnPhase.SETUP_PLACE_SETTLEMENT) return err(socket, 'Wrong phase');
 
-    const result = placeSettlement(gs, socket.id, vertexId, true);
+    const result = placeSettlement(gs, playerId, vertexId, true);
     if (result.error) return err(socket, result.error);
 
     gs.turnPhase = TurnPhase.SETUP_PLACE_ROAD;
@@ -94,28 +110,27 @@ export function registerHandlers(io, socket) {
     const room = getRoom(roomCode);
     if (!room?.gameState) return err(socket, 'No game');
     const gs = room.gameState;
-    if (!assertTurn(socket, gs, socket.id)) return;
+    const playerId = getPlayerId(room, socket.id);
+    if (!assertTurn(socket, gs, playerId)) return;
     if (gs.turnPhase !== TurnPhase.SETUP_PLACE_ROAD) return err(socket, 'Wrong phase');
 
-    const result = placeRoad(gs, socket.id, edgeId, true);
+    const result = placeRoad(gs, playerId, edgeId, true);
     if (result.error) return err(socket, result.error);
 
-    // If round 2: grant starting resources from second settlement's adjacent tiles
     if (gs.setupRound === 2) {
       const TERRAIN_RESOURCE = {
         HILLS: 'BRICK', FOREST: 'WOOD', MOUNTAINS: 'ORE',
         FIELDS: 'WHEAT', PASTURE: 'SHEEP',
       };
-      // Find the settlement this player just placed (last one placed)
       const playerVertices = Object.values(gs.board.vertices)
-        .filter(v => v.building?.playerId === socket.id);
+        .filter(v => v.building?.playerId === playerId);
       const lastSettlement = playerVertices[playerVertices.length - 1];
       if (lastSettlement) {
         for (const tileId of lastSettlement.adjacentTiles) {
           const tile = gs.board.tiles.find(t => t.id === tileId);
           if (!tile || tile.terrain === 'DESERT') continue;
           const res = TERRAIN_RESOURCE[tile.terrain];
-          if (res) gs.players[socket.id].resources[res]++;
+          if (res) gs.players[playerId].resources[res]++;
         }
       }
     }
@@ -129,7 +144,8 @@ export function registerHandlers(io, socket) {
     const room = getRoom(roomCode);
     if (!room?.gameState) return err(socket, 'No game');
     const gs = room.gameState;
-    if (!assertTurn(socket, gs, socket.id)) return;
+    const playerId = getPlayerId(room, socket.id);
+    if (!assertTurn(socket, gs, playerId)) return;
     if (gs.turnPhase !== TurnPhase.ROLL_OR_PLAY_DEV) return err(socket, 'Wrong phase');
 
     const [d1, d2] = rollDice();
@@ -151,13 +167,13 @@ export function registerHandlers(io, socket) {
       } else {
         gs.turnPhase = TurnPhase.ROBBER_MOVE;
       }
-      broadcast(io, roomCode, 'dice_rolled', { roll: [d1, d2], total, playerId: socket.id });
+      broadcast(io, roomCode, 'dice_rolled', { roll: [d1, d2], total, playerId });
       broadcastState(io, room);
     } else {
       distributeResources(gs, total);
       gs.turnPhase = TurnPhase.MAIN;
       gs.turnStartTime = Date.now();
-      broadcast(io, roomCode, 'dice_rolled', { roll: [d1, d2], total, playerId: socket.id });
+      broadcast(io, roomCode, 'dice_rolled', { roll: [d1, d2], total, playerId });
       broadcastState(io, room);
     }
   });
@@ -166,7 +182,8 @@ export function registerHandlers(io, socket) {
     const room = getRoom(roomCode);
     if (!room?.gameState) return err(socket, 'No game');
     const gs = room.gameState;
-    if (!assertTurn(socket, gs, socket.id)) return;
+    const playerId = getPlayerId(room, socket.id);
+    if (!assertTurn(socket, gs, playerId)) return;
     if (gs.turnPhase !== TurnPhase.ROBBER_MOVE) return err(socket, 'Wrong phase');
 
     const tile = gs.board.tiles.find(t => t.id === tileId);
@@ -174,7 +191,7 @@ export function registerHandlers(io, socket) {
     if (tile.hasRobber) return err(socket, 'Robber already there');
 
     moveRobber(gs.board, tileId);
-    const targets = getStealTargets(gs.board, gs, socket.id);
+    const targets = getStealTargets(gs.board, gs, playerId);
 
     if (targets.length > 0) {
       gs.turnPhase = TurnPhase.ROBBER_STEAL;
@@ -191,12 +208,13 @@ export function registerHandlers(io, socket) {
     const room = getRoom(roomCode);
     if (!room?.gameState) return err(socket, 'No game');
     const gs = room.gameState;
-    if (!assertTurn(socket, gs, socket.id)) return;
+    const playerId = getPlayerId(room, socket.id);
+    if (!assertTurn(socket, gs, playerId)) return;
     if (gs.turnPhase !== TurnPhase.ROBBER_STEAL) return err(socket, 'Wrong phase');
     if (!(gs._robberTargets || []).includes(targetPlayerId)) return err(socket, 'Invalid target');
 
     const stolenFrom = gs.players[targetPlayerId];
-    stealResource(gs, targetPlayerId, socket.id);
+    stealResource(gs, targetPlayerId, playerId);
     gs.log.push(`${currentPlayer(gs).name} stole from ${stolenFrom.name}`);
     gs._robberTargets = null;
     gs.turnPhase = gs._postRobberPhase || TurnPhase.MAIN;
@@ -208,12 +226,13 @@ export function registerHandlers(io, socket) {
     const room = getRoom(roomCode);
     if (!room?.gameState) return err(socket, 'No game');
     const gs = room.gameState;
-    if (!assertTurn(socket, gs, socket.id)) return;
+    const playerId = getPlayerId(room, socket.id);
+    if (!assertTurn(socket, gs, playerId)) return;
 
     const isFreeRoad = gs.turnPhase === TurnPhase.ROAD_BUILDING_1 || gs.turnPhase === TurnPhase.ROAD_BUILDING_2;
     if (gs.turnPhase !== TurnPhase.MAIN && !isFreeRoad) return err(socket, 'Wrong phase');
 
-    const result = placeRoad(gs, socket.id, edgeId, isFreeRoad);
+    const result = placeRoad(gs, playerId, edgeId, isFreeRoad);
     if (result.error) return err(socket, result.error);
 
     if (gs.turnPhase === TurnPhase.ROAD_BUILDING_1) {
@@ -223,21 +242,21 @@ export function registerHandlers(io, socket) {
     }
 
     updateLongestRoad(gs);
-    const pn = gs.players[socket.id].name;
-    finishBuildAction(io, room, socket, `${pn} built a road`);
+    finishBuildAction(io, room, socket, `${gs.players[playerId].name} built a road`);
   });
 
   socket.on('build_settlement', ({ roomCode, vertexId }) => {
     const room = getRoom(roomCode);
     if (!room?.gameState) return err(socket, 'No game');
     const gs = room.gameState;
-    if (!assertTurn(socket, gs, socket.id)) return;
+    const playerId = getPlayerId(room, socket.id);
+    if (!assertTurn(socket, gs, playerId)) return;
     if (gs.turnPhase !== TurnPhase.MAIN) return err(socket, 'Wrong phase');
 
-    const player = gs.players[socket.id];
+    const player = gs.players[playerId];
     if (player.settlements <= 0) return err(socket, 'No settlements left');
 
-    const result = placeSettlement(gs, socket.id, vertexId, false);
+    const result = placeSettlement(gs, playerId, vertexId, false);
     if (result.error) return err(socket, result.error);
 
     finishBuildAction(io, room, socket, `${player.name} built a settlement`);
@@ -247,13 +266,14 @@ export function registerHandlers(io, socket) {
     const room = getRoom(roomCode);
     if (!room?.gameState) return err(socket, 'No game');
     const gs = room.gameState;
-    if (!assertTurn(socket, gs, socket.id)) return;
+    const playerId = getPlayerId(room, socket.id);
+    if (!assertTurn(socket, gs, playerId)) return;
     if (gs.turnPhase !== TurnPhase.MAIN) return err(socket, 'Wrong phase');
 
-    const player = gs.players[socket.id];
+    const player = gs.players[playerId];
     if (player.cities <= 0) return err(socket, 'No cities left');
 
-    const result = upgradeToCity(gs, socket.id, vertexId);
+    const result = upgradeToCity(gs, playerId, vertexId);
     if (result.error) return err(socket, result.error);
 
     finishBuildAction(io, room, socket, `${player.name} upgraded to a city`);
@@ -263,10 +283,11 @@ export function registerHandlers(io, socket) {
     const room = getRoom(roomCode);
     if (!room?.gameState) return err(socket, 'No game');
     const gs = room.gameState;
-    if (!assertTurn(socket, gs, socket.id)) return;
+    const playerId = getPlayerId(room, socket.id);
+    if (!assertTurn(socket, gs, playerId)) return;
     if (gs.turnPhase !== TurnPhase.MAIN) return err(socket, 'Wrong phase');
 
-    const player = gs.players[socket.id];
+    const player = gs.players[playerId];
     if (!player.canAfford(BUILD_COSTS.DEV_CARD)) return err(socket, 'Not enough resources');
     if (gs.devCardDeck.remaining === 0) return err(socket, 'No dev cards left');
 
@@ -282,14 +303,14 @@ export function registerHandlers(io, socket) {
     const room = getRoom(roomCode);
     if (!room?.gameState) return err(socket, 'No game');
     const gs = room.gameState;
-    if (!assertTurn(socket, gs, socket.id)) return;
+    const playerId = getPlayerId(room, socket.id);
+    if (!assertTurn(socket, gs, playerId)) return;
 
     const validPhases = [TurnPhase.ROLL_OR_PLAY_DEV, TurnPhase.MAIN];
-    // Knight can be played before roll, others only after
     if (cardType === 'KNIGHT' && !validPhases.includes(gs.turnPhase)) return err(socket, 'Wrong phase');
     if (cardType !== 'KNIGHT' && gs.turnPhase !== TurnPhase.MAIN) return err(socket, 'Wrong phase');
 
-    const player = gs.players[socket.id];
+    const player = gs.players[playerId];
     if (!player.devCards[cardType] || player.devCards[cardType] < 1) return err(socket, 'No such card');
     if (player.playedDevCardThisTurn) return err(socket, 'Already played a dev card this turn');
 
@@ -312,17 +333,17 @@ export function registerHandlers(io, socket) {
       if (winner) { gs.winner = winner; gs.turnPhase = TurnPhase.GAME_OVER; }
       broadcastState(io, room);
     }
-    // MONOPOLY and YEAR_OF_PLENTY handled by separate events
   });
 
   socket.on('play_monopoly', ({ roomCode, resource }) => {
     const room = getRoom(roomCode);
     if (!room?.gameState) return err(socket, 'No game');
     const gs = room.gameState;
-    if (!assertTurn(socket, gs, socket.id)) return;
+    const playerId = getPlayerId(room, socket.id);
+    if (!assertTurn(socket, gs, playerId)) return;
     if (gs.turnPhase !== TurnPhase.MAIN) return err(socket, 'Wrong phase');
 
-    const player = gs.players[socket.id];
+    const player = gs.players[playerId];
     if (!player.devCards.MONOPOLY) return err(socket, 'No Monopoly card');
     if (player.playedDevCardThisTurn) return err(socket, 'Already played a dev card');
 
@@ -330,7 +351,7 @@ export function registerHandlers(io, socket) {
     player.playedDevCardThisTurn = true;
 
     for (const [pid, other] of Object.entries(gs.players)) {
-      if (pid === socket.id) continue;
+      if (pid === playerId) continue;
       const amount = other.resources[resource] || 0;
       other.resources[resource] = 0;
       player.resources[resource] = (player.resources[resource] || 0) + amount;
@@ -344,10 +365,11 @@ export function registerHandlers(io, socket) {
     const room = getRoom(roomCode);
     if (!room?.gameState) return err(socket, 'No game');
     const gs = room.gameState;
-    if (!assertTurn(socket, gs, socket.id)) return;
+    const playerId = getPlayerId(room, socket.id);
+    if (!assertTurn(socket, gs, playerId)) return;
     if (gs.turnPhase !== TurnPhase.MAIN) return err(socket, 'Wrong phase');
 
-    const player = gs.players[socket.id];
+    const player = gs.players[playerId];
     if (!player.devCards.YEAR_OF_PLENTY) return err(socket, 'No Year of Plenty card');
     if (player.playedDevCardThisTurn) return err(socket, 'Already played a dev card');
 
@@ -364,28 +386,29 @@ export function registerHandlers(io, socket) {
     const room = getRoom(roomCode);
     if (!room?.gameState) return err(socket, 'No game');
     const gs = room.gameState;
-    if (!assertTurn(socket, gs, socket.id)) return;
+    const playerId = getPlayerId(room, socket.id);
+    if (!assertTurn(socket, gs, playerId)) return;
     if (gs.turnPhase !== TurnPhase.MAIN) return err(socket, 'Wrong phase');
 
-    const offer = createOffer(gs, socket.id, give, want);
+    createOffer(gs, playerId, give, want);
     broadcastState(io, room);
   });
 
-  // Any non-active player records accept/decline (does not execute trade).
   socket.on('respond_trade', ({ roomCode, tradeId, response }) => {
     const room = getRoom(roomCode);
     if (!room?.gameState) return err(socket, 'No game');
-    const result = respondOffer(room.gameState, tradeId, socket.id, response);
+    const playerId = getPlayerId(room, socket.id);
+    const result = respondOffer(room.gameState, tradeId, playerId, response);
     if (result.error) return err(socket, result.error);
     broadcastState(io, room);
   });
 
-  // Active player picks which accepting player to trade with.
   socket.on('confirm_trade', ({ roomCode, tradeId, counterpartyId }) => {
     const room = getRoom(roomCode);
     if (!room?.gameState) return err(socket, 'No game');
     const gs = room.gameState;
-    if (!assertTurn(socket, gs, socket.id)) return;
+    const playerId = getPlayerId(room, socket.id);
+    if (!assertTurn(socket, gs, playerId)) return;
     const result = confirmTrade(gs, tradeId, counterpartyId);
     if (result.error) return err(socket, result.error);
     gs.log.push(`${currentPlayer(gs).name} traded with ${gs.players[counterpartyId]?.name}`);
@@ -403,12 +426,13 @@ export function registerHandlers(io, socket) {
     const room = getRoom(roomCode);
     if (!room?.gameState) return err(socket, 'No game');
     const gs = room.gameState;
-    if (!assertTurn(socket, gs, socket.id)) return;
+    const playerId = getPlayerId(room, socket.id);
+    if (!assertTurn(socket, gs, playerId)) return;
     if (gs.turnPhase !== TurnPhase.MAIN) return err(socket, 'Wrong phase');
 
-    const result = executePortTrade(gs, socket.id, give, want);
+    const result = executePortTrade(gs, playerId, give, want);
     if (result.error) return err(socket, result.error);
-    gs.log.push(`${gs.players[socket.id].name} traded with the bank`);
+    gs.log.push(`${gs.players[playerId].name} traded with the bank`);
     broadcastState(io, room);
   });
 
@@ -416,15 +440,16 @@ export function registerHandlers(io, socket) {
     const room = getRoom(roomCode);
     if (!room?.gameState) return err(socket, 'No game');
     const gs = room.gameState;
+    const playerId = getPlayerId(room, socket.id);
     if (gs.turnPhase !== TurnPhase.DISCARD_RESOURCES) return err(socket, 'Wrong phase');
-    const needed = gs.discardNeeded?.[socket.id];
-    if (!needed) return err(socket, 'You don\'t need to discard');
+    const needed = gs.discardNeeded?.[playerId];
+    if (!needed) return err(socket, "You don't need to discard");
 
     let total = 0;
     for (const amt of Object.values(resources)) total += (amt || 0);
     if (total !== needed) return err(socket, `Must discard exactly ${needed} resources`);
 
-    const player = gs.players[socket.id];
+    const player = gs.players[playerId];
     for (const [res, amt] of Object.entries(resources)) {
       if ((player.resources[res] || 0) < (amt || 0)) return err(socket, `Not enough ${res}`);
     }
@@ -433,7 +458,7 @@ export function registerHandlers(io, socket) {
     }
 
     gs.log.push(`${player.name} discarded ${needed} cards`);
-    delete gs.discardNeeded[socket.id];
+    delete gs.discardNeeded[playerId];
     if (Object.keys(gs.discardNeeded).length === 0) {
       gs.discardNeeded = null;
       gs.turnPhase = TurnPhase.ROBBER_MOVE;
@@ -444,9 +469,12 @@ export function registerHandlers(io, socket) {
   socket.on('chat_message', ({ roomCode, text }) => {
     const room = getRoom(roomCode);
     if (!room) return;
-    const player = room.players.find(p => p.id === socket.id);
+    const playerId = getPlayerId(room, socket.id);
+    const player = room.players.find(p => p.id === playerId)
+      || (room.gameState?.players[playerId]);
     if (!player) return;
-    const msg = { name: player.name, text: text.slice(0, 200), ts: Date.now() };
+    const name = player.name || 'Unknown';
+    const msg = { name, text: text.slice(0, 200), ts: Date.now() };
     room.chat.push(msg);
     if (room.chat.length > 100) room.chat.shift();
     io.to(roomCode).emit('chat_message', msg);
@@ -456,7 +484,8 @@ export function registerHandlers(io, socket) {
     const room = getRoom(roomCode);
     if (!room?.gameState) return err(socket, 'No game');
     const gs = room.gameState;
-    if (!assertTurn(socket, gs, socket.id)) return;
+    const playerId = getPlayerId(room, socket.id);
+    if (!assertTurn(socket, gs, playerId)) return;
     if (gs.turnPhase !== TurnPhase.MAIN) return err(socket, 'Wrong phase');
 
     advanceTurn(gs);
@@ -465,10 +494,13 @@ export function registerHandlers(io, socket) {
 
   // ── Disconnect ───────────────────────────────────────────────────────────
   socket.on('disconnect', () => {
-    const room = removePlayer(socket.id);
-    if (room) {
+    const result = removePlayer(socket.id);
+    if (!result) return;
+    const { room, inGame } = result;
+    if (!inGame) {
       io.to(room.code).emit('player_left', { players: room.players, leftId: socket.id });
     }
+    // During a game, silently handle disconnect — player can reconnect by name
   });
 }
 

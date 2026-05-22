@@ -1,36 +1,147 @@
-const pips = {
-  1: [[50, 50]], 2: [[25, 25], [75, 75]], 3: [[25, 25], [50, 50], [75, 75]],
-  4: [[25, 25], [75, 25], [25, 75], [75, 75]],
-  5: [[25, 25], [75, 25], [50, 50], [25, 75], [75, 75]],
-  6: [[25, 25], [75, 25], [25, 50], [75, 50], [25, 75], [75, 75]],
+import { useEffect, useRef, useState } from 'react';
+
+// 3D CSS cube die — adapted from html5-yahtzee-dice approach
+const SIZE = 46;
+const HALF = SIZE / 2;
+
+// Which cube rotation shows each face value
+const CUBE_TRANSFORM = {
+  1: 'rotateX(0deg)',
+  2: 'rotateX(90deg)',
+  3: 'rotateY(-90deg)',
+  4: 'rotateY(90deg)',
+  5: 'rotateX(-90deg)',
+  6: 'rotateX(-180deg)',
 };
 
-function Die({ value }) {
-  const isRed = value === 6;
+// Placement of each face (face order: 1,2,3,4,5,6)
+const FACE_PLACEMENT = [
+  `rotateX(0deg) translateZ(${HALF}px)`,
+  `rotateX(-90deg) translateZ(${HALF}px)`,
+  `rotateY(90deg) translateZ(${HALF}px)`,
+  `rotateY(-90deg) translateZ(${HALF}px)`,
+  `rotateX(90deg) translateZ(${HALF}px)`,
+  `rotateX(-180deg) translateZ(${HALF}px)`,
+];
+
+const PIP_POS = {
+  1: [[50, 50]],
+  2: [[28, 28], [72, 72]],
+  3: [[28, 28], [50, 50], [72, 72]],
+  4: [[28, 28], [72, 28], [28, 72], [72, 72]],
+  5: [[28, 28], [72, 28], [50, 50], [28, 72], [72, 72]],
+  6: [[28, 28], [72, 28], [28, 50], [72, 50], [28, 72], [72, 72]],
+};
+
+const PIP_R = SIZE * 0.088;
+
+const diceAudio = typeof Audio !== 'undefined' ? new Audio('/sounds/dice.wav') : null;
+if (diceAudio) diceAudio.volume = 0.55;
+
+function DieFace({ faceValue }) {
+  const isRed = faceValue === 6;
+  const pips = PIP_POS[faceValue] || [];
   return (
-    <svg width={40} height={40} viewBox="0 0 100 100">
-      <rect x={5} y={5} width={90} height={90} rx={15}
-        fill={isRed ? '#c0392b' : '#f5f5f5'} stroke="#333" strokeWidth={4} />
-      {(pips[value] || []).map(([cx, cy], i) => (
-        <circle key={i} cx={cx} cy={cy} r={9}
-          fill={isRed ? '#fff' : '#222'} />
+    <div style={{
+      width: SIZE, height: SIZE, boxSizing: 'border-box',
+      background: isRed ? '#c0392b' : '#f0ede0',
+      borderRadius: SIZE * 0.16,
+      border: `1.5px solid ${isRed ? '#8b1a0e' : '#888'}`,
+      position: 'relative',
+      boxShadow: 'inset 0 1px 3px rgba(255,255,255,0.4), inset 0 -1px 3px rgba(0,0,0,0.15)',
+    }}>
+      {pips.map(([px, py], i) => (
+        <div key={i} style={{
+          position: 'absolute',
+          width: PIP_R * 2, height: PIP_R * 2, borderRadius: '50%',
+          background: isRed ? '#fff' : '#222',
+          left: `${px}%`, top: `${py}%`,
+          transform: 'translate(-50%, -50%)',
+          boxShadow: isRed ? 'none' : '0 1px 2px rgba(0,0,0,0.4)',
+        }} />
       ))}
-    </svg>
+    </div>
+  );
+}
+
+function Die3D({ value }) {
+  const t = CUBE_TRANSFORM[value] || CUBE_TRANSFORM[1];
+  return (
+    <div style={{ position: 'relative', width: SIZE, height: SIZE, perspective: `${SIZE * 10}px` }}>
+      <div style={{
+        position: 'absolute', width: SIZE, height: SIZE,
+        transformStyle: 'preserve-3d',
+        transform: `translateZ(-${HALF}px) ${t}`,
+        transition: 'transform 220ms ease',
+      }}>
+        {[1, 2, 3, 4, 5, 6].map((fv, i) => (
+          <div key={fv} style={{
+            position: 'absolute', width: SIZE, height: SIZE,
+            transform: FACE_PLACEMENT[i],
+            backfaceVisibility: 'hidden',
+          }}>
+            <DieFace faceValue={fv} />
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
 export default function DiceDisplay({ lastRoll }) {
-  if (!lastRoll) return null;
-  const total = lastRoll[0] + lastRoll[1];
+  const [displayed, setDisplayed] = useState(null);
+  const [rolling, setRolling] = useState(false);
+  const seenKey = useRef(null);
+  const tickRef = useRef(null);
+
+  useEffect(() => {
+    if (!lastRoll) return;
+    const key = lastRoll.join(',');
+    if (seenKey.current === key) return;
+    seenKey.current = key;
+
+    setRolling(true);
+    setDisplayed([Math.ceil(Math.random() * 6), Math.ceil(Math.random() * 6)]);
+
+    if (diceAudio) {
+      diceAudio.currentTime = 0;
+      diceAudio.play().catch(() => {});
+    }
+
+    let tick = 0;
+    clearInterval(tickRef.current);
+    tickRef.current = setInterval(() => {
+      tick++;
+      if (tick >= 9) {
+        clearInterval(tickRef.current);
+        setDisplayed([...lastRoll]);
+        setRolling(false);
+      } else {
+        setDisplayed([Math.ceil(Math.random() * 6), Math.ceil(Math.random() * 6)]);
+      }
+    }, 95);
+
+    return () => clearInterval(tickRef.current);
+  }, [lastRoll]);
+
+  const show = displayed || lastRoll;
+  if (!show) return null;
+
+  const total = (lastRoll || show)[0] + (lastRoll || show)[1];
+
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8,
-      background: 'rgba(22,33,62,0.9)', padding: '8px 12px',
-      borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)' }}>
-      <Die value={lastRoll[0]} />
-      <Die value={lastRoll[1]} />
-      <span style={{ fontSize: 20, fontWeight: 700, color: total === 7 ? '#e74c3c' : '#f1c40f' }}>
-        {total}
-      </span>
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10,
+      background: 'rgba(22,33,62,0.9)', padding: '10px 14px',
+      borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)',
+    }}>
+      <Die3D value={show[0]} />
+      <Die3D value={show[1]} />
+      {!rolling && (
+        <span style={{ fontSize: 20, fontWeight: 700, color: total === 7 ? '#e74c3c' : '#f1c40f', minWidth: 24 }}>
+          {total}
+        </span>
+      )}
     </div>
   );
 }

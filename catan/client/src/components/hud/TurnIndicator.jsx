@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '../../store/gameStore.js';
 import { actions } from '../../store/actions.js';
 
@@ -20,11 +20,24 @@ const PHASE_LABELS = {
 export default function TurnIndicator({ gameState }) {
   const { playerId } = useGameStore();
   const [secondsLeft, setSecondsLeft] = useState(TURN_SECONDS);
+  const [pulse, setPulse] = useState(false);
+  const prevIsMe = useRef(false);
 
   const currentPid = gameState.turnOrder[gameState.currentPlayerIndex];
   const currentPlayer = gameState.players[currentPid];
   const isMe = currentPid === playerId;
   const isMainGame = gameState.phase === 'MAIN';
+
+  // Pulse when it becomes your turn
+  useEffect(() => {
+    if (isMe && !prevIsMe.current) {
+      setPulse(true);
+      const t = setTimeout(() => setPulse(false), 2400);
+      prevIsMe.current = true;
+      return () => clearTimeout(t);
+    }
+    if (!isMe) prevIsMe.current = false;
+  }, [isMe]);
 
   useEffect(() => {
     if (!isMainGame || !gameState.turnStartTime) return;
@@ -45,40 +58,51 @@ export default function TurnIndicator({ gameState }) {
   const pct = secondsLeft / TURN_SECONDS;
   const r = 10;
   const circ = 2 * Math.PI * r;
+  const borderColor = pulse ? '#ffe000' : isMe ? '#f39c12' : 'rgba(255,255,255,0.1)';
 
   return (
-    <div style={{
-      background: 'rgba(22,33,62,0.95)', borderRadius: 10, padding: '8px 14px',
-      border: `2px solid ${isMe ? '#f39c12' : 'rgba(255,255,255,0.1)'}`,
-      backdropFilter: 'blur(4px)',
-      display: 'flex', alignItems: 'center', gap: 10,
-    }}>
-      <div style={{ flex: 1 }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: currentPlayer?.color || '#eee' }}>
-          {isMe ? 'Your turn' : `${currentPlayer?.name}'s turn`}
-        </span>
-        <span style={{ fontSize: 12, color: '#aaa', marginLeft: 8 }}>
-          — {PHASE_LABELS[gameState.turnPhase] || gameState.turnPhase}
-        </span>
-      </div>
-
-      {isMainGame && (
-        <div style={{ position: 'relative', width: 28, height: 28, flexShrink: 0 }}>
-          <svg width={28} height={28} style={{ transform: 'rotate(-90deg)' }}>
-            <circle cx={14} cy={14} r={r} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth={3} />
-            <circle cx={14} cy={14} r={r} fill="none" stroke={timerColor} strokeWidth={3}
-              strokeDasharray={circ} strokeDashoffset={circ * (1 - pct)}
-              strokeLinecap="round"
-              style={{ transition: 'stroke-dashoffset 0.9s linear, stroke 0.3s' }} />
-          </svg>
-          <span style={{
-            position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 9, fontWeight: 700, color: timerColor, fontVariantNumeric: 'tabular-nums',
-          }}>
-            {secondsLeft}
+    <>
+      <style>{`
+        @keyframes turnPulse {
+          0%,100% { box-shadow: 0 0 0 0 rgba(255,224,0,0); }
+          50% { box-shadow: 0 0 0 8px rgba(255,224,0,0.35); }
+        }
+      `}</style>
+      <div style={{
+        background: 'rgba(22,33,62,0.95)', borderRadius: 10, padding: '8px 14px',
+        border: `2px solid ${borderColor}`,
+        backdropFilter: 'blur(4px)',
+        display: 'flex', alignItems: 'center', gap: 10,
+        animation: pulse ? 'turnPulse 0.6s ease 4' : 'none',
+        transition: 'border-color 0.3s',
+      }}>
+        <div style={{ flex: 1 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: currentPlayer?.color || '#eee' }}>
+            {isMe ? 'Your turn' : `${currentPlayer?.name}'s turn`}
+          </span>
+          <span style={{ fontSize: 12, color: '#aaa', marginLeft: 8 }}>
+            — {PHASE_LABELS[gameState.turnPhase] || gameState.turnPhase}
           </span>
         </div>
-      )}
-    </div>
+
+        {isMainGame && (
+          <div style={{ position: 'relative', width: 28, height: 28, flexShrink: 0 }}>
+            <svg width={28} height={28} style={{ transform: 'rotate(-90deg)' }}>
+              <circle cx={14} cy={14} r={r} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth={3} />
+              <circle cx={14} cy={14} r={r} fill="none" stroke={timerColor} strokeWidth={3}
+                strokeDasharray={circ} strokeDashoffset={circ * (1 - pct)}
+                strokeLinecap="round"
+                style={{ transition: 'stroke-dashoffset 0.9s linear, stroke 0.3s' }} />
+            </svg>
+            <span style={{
+              position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 9, fontWeight: 700, color: timerColor, fontVariantNumeric: 'tabular-nums',
+            }}>
+              {secondsLeft}
+            </span>
+          </div>
+        )}
+      </div>
+    </>
   );
 }

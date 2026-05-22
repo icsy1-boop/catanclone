@@ -3,6 +3,7 @@ import { useSocket } from './hooks/useSocket.js';
 import LandingPage from './components/lobby/LandingPage.jsx';
 import RoomLobby from './components/lobby/RoomLobby.jsx';
 import GamePage from './components/GamePage.jsx';
+import ToastStack from './components/shared/Toast.jsx';
 import { useGameStore } from './store/gameStore.js';
 
 function RequireRoom({ children }) {
@@ -14,6 +15,8 @@ export default function App() {
   useSocket();
 
   return (
+    <>
+    <ToastStack />
     <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/room/:code" element={<RoomLobby />} />
@@ -22,5 +25,6 @@ export default function App() {
       } />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>
+    </>
   );
 }

@@ -2,18 +2,25 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import socket from '../socket.js';
 import { useGameStore } from '../store/gameStore.js';
+import { useUIStore } from '../store/uiStore.js';
 
 export function useSocket() {
   const navigate = useNavigate();
   const { setRoom, setLobbyPlayers, setGameState, setPrivateData } = useGameStore();
+  const addToast = useUIStore(s => s.addToast);
 
   useEffect(() => {
     socket.on('room_created', ({ roomCode, playerId, players, isHost }) => {
+      sessionStorage.setItem('catanRoom', roomCode);
+      sessionStorage.setItem('catanName', players.find(p => p.id === playerId)?.name || '');
       setRoom(roomCode, playerId, isHost, players);
       navigate(`/room/${roomCode}`);
     });
 
     socket.on('room_joined', ({ roomCode, playerId, players, isHost }) => {
+      const myName = players.find(p => p.id === playerId)?.name || '';
+      sessionStorage.setItem('catanRoom', roomCode);
+      sessionStorage.setItem('catanName', myName);
       setRoom(roomCode, playerId, isHost, players);
       navigate(`/room/${roomCode}`);
     });
@@ -29,9 +36,17 @@ export function useSocket() {
     socket.on('game_state_update', ({ gameState }) => setGameState(gameState));
     socket.on('your_private_data', (data) => setPrivateData(data));
 
-    socket.on('error', ({ message }) => {
-      // Simple alert for prototype; replace with toast in production
-      alert(`Error: ${message}`);
+    socket.on('error', ({ message }) => addToast(message, 'error'));
+
+    // Auto-rejoin in-progress game after reconnect
+    socket.on('connect', () => {
+      const savedRoom = sessionStorage.getItem('catanRoom');
+      const savedName = sessionStorage.getItem('catanName');
+      const { roomCode, gameState } = useGameStore.getState();
+      // Only attempt rejoin if we had a game but lost the connection
+      if (savedRoom && savedName && !roomCode && !gameState) {
+        socket.emit('join_room', { roomCode: savedRoom, playerName: savedName });
+      }
     });
 
     return () => {
@@ -43,6 +58,7 @@ export function useSocket() {
       socket.off('game_state_update');
       socket.off('your_private_data');
       socket.off('error');
+      socket.off('connect');
     };
   }, []);
 }
