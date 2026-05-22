@@ -101,14 +101,32 @@ export default function TradeModal({ onClose }) {
             })}
           </div>
           <ResourcePicker label="You give" values={give} onChange={setGiveR} maxValues={myResources} />
-          <div style={{ marginTop: 12 }}>
-            <ResourcePicker label="You want (1 resource)" values={want} onChange={setWantR}
-              maxValues={RESOURCES.reduce((acc, r) => { acc[r] = 1; return acc; }, {})} />
-          </div>
-          <div style={{ marginTop: 16 }}>
-            <Button onClick={() => { actions.portTrade(give, want); onClose(); }}
-              disabled={!hasOffer()}>Trade with Bank</Button>
-          </div>
+          {(() => {
+            // How many resources can be received based on current give selection
+            const receivable = RESOURCES.reduce((sum, r) => {
+              const ratio = getPortRatio(gameState, playerId, r);
+              return sum + Math.floor((give[r] || 0) / ratio);
+            }, 0);
+            const wantMax = RESOURCES.reduce((acc, r) => { acc[r] = receivable; return acc; }, {});
+            const wantTotal = RESOURCES.reduce((s, r) => s + (want[r] || 0), 0);
+            const bankOk = receivable > 0 && wantTotal === receivable;
+            return (
+              <div style={{ marginTop: 12 }}>
+                <ResourcePicker
+                  label={`You want (${receivable > 0 ? `${receivable} resource${receivable !== 1 ? 's' : ''}` : 'select what to give first'})`}
+                  values={want} onChange={setWantR} maxValues={wantMax} />
+                <div style={{ marginTop: 16 }}>
+                  <Button onClick={() => { actions.portTrade(give, want); onClose(); }}
+                    disabled={!bankOk}>Trade with Bank</Button>
+                  {receivable > 0 && wantTotal !== receivable && (
+                    <span style={{ fontSize: 11, color: '#888', marginLeft: 10 }}>
+                      Select {receivable - wantTotal} more to want
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
         </>
       )}
     </Overlay>

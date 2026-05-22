@@ -70,7 +70,7 @@ export default function HexTile({ tile, cx, cy, size, isLegalRobber, onClick }) 
           height={size * 2.2}
           preserveAspectRatio="xMidYMid slice"
           clipPath={`url(#${clipId})`}
-          opacity={0.18}
+          opacity={0.5}
           style={{ mixBlendMode: 'multiply' }}
         />
       )}

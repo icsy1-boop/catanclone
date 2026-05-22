@@ -17,17 +17,33 @@ export function executePortTrade(gameState, playerId, give, want) {
   const player = gameState.players[playerId];
   if (!player) return { error: 'Player not found' };
 
+  // Compute total resources receivable from what the player is giving
+  let totalReceivable = 0;
   for (const [res, amount] of Object.entries(give)) {
     if (!amount) continue;
     const ratio = getPortRatio(gameState.board, playerId, res);
-    if (amount % ratio !== 0) return { error: `Must trade in multiples of ${ratio} for ${res}` };
-    const wantTotal = amount / ratio;
-    const wantRes = Object.keys(want).find(r => want[r]);
-    if (!wantRes) return { error: 'No wanted resource specified' };
-    if (player.resources[res] < amount) return { error: `Not enough ${res}` };
-    player.resources[res] -= amount;
-    player.resources[wantRes] = (player.resources[wantRes] || 0) + wantTotal;
+    if (amount % ratio !== 0) return { error: `Must give ${res} in multiples of ${ratio}` };
+    if ((player.resources[res] || 0) < amount) return { error: `Not enough ${res}` };
+    totalReceivable += amount / ratio;
   }
+
+  if (totalReceivable === 0) return { error: 'Nothing to trade' };
+
+  const totalWanted = Object.values(want).reduce((s, v) => s + (v || 0), 0);
+  if (totalWanted !== totalReceivable) {
+    return { error: `Must receive exactly ${totalReceivable} resource${totalReceivable !== 1 ? 's' : ''}` };
+  }
+
+  // Execute
+  for (const [res, amount] of Object.entries(give)) {
+    if (!amount) continue;
+    player.resources[res] -= amount;
+  }
+  for (const [res, amount] of Object.entries(want)) {
+    if (!amount) continue;
+    player.resources[res] = (player.resources[res] || 0) + amount;
+  }
+
   return { ok: true };
 }
 
@@ -76,7 +92,7 @@ export function confirmTrade(gameState, tradeId, counterpartyId) {
 
   offer.status = 'completed';
   delete gameState.pendingTrades[tradeId];
-  return { ok: true };
+  return { ok: true, give: offer.give, want: offer.want };
 }
 
 export function cancelOffer(gameState, tradeId) {

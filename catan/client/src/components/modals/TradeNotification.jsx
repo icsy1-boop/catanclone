@@ -35,10 +35,19 @@ export default function TradeNotification() {
         const fromPlayer = gameState.players[offer.fromPlayerId];
         const responses = offer.responses || {};
         const myResponse = responses[playerId];
+
         const acceptors = Object.entries(responses)
           .filter(([, r]) => r === 'accepted')
-          .map(([pid]) => gameState.players[pid])
-          .filter(Boolean);
+          .map(([pid]) => gameState.players[pid]).filter(Boolean);
+
+        const decliners = Object.entries(responses)
+          .filter(([, r]) => r === 'declined')
+          .map(([pid]) => gameState.players[pid]).filter(Boolean);
+
+        // Players who haven't responded yet (excluding offeror)
+        const pending = gameState.turnOrder
+          .filter(pid => pid !== offer.fromPlayerId && !responses[pid])
+          .map(pid => gameState.players[pid]).filter(Boolean);
 
         return (
           <div key={offer.id} style={{
@@ -55,12 +64,9 @@ export default function TradeNotification() {
             <div style={{ marginTop: 10 }}>
               {isMyOffer ? (
                 <>
-                  {acceptors.length === 0 ? (
-                    <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>
-                      Waiting for responses…
-                    </div>
-                  ) : (
-                    <div style={{ marginBottom: 8 }}>
+                  {/* Acceptors — can pick any to trade with */}
+                  {acceptors.length > 0 && (
+                    <div style={{ marginBottom: 6 }}>
                       {acceptors.map(p => (
                         <button key={p.id}
                           onClick={() => actions.confirmTrade(offer.id, p.id)}
@@ -75,6 +81,31 @@ export default function TradeNotification() {
                       ))}
                     </div>
                   )}
+
+                  {/* Decliners */}
+                  {decliners.length > 0 && (
+                    <div style={{ marginBottom: 6 }}>
+                      {decliners.map(p => (
+                        <div key={p.id} style={{ fontSize: 11, color: '#e74c3c', marginBottom: 2 }}>
+                          ✗ {p.name} declined
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Still waiting */}
+                  {pending.length > 0 && (
+                    <div style={{ fontSize: 11, color: '#777', marginBottom: 6 }}>
+                      Waiting: {pending.map(p => p.name).join(', ')}
+                    </div>
+                  )}
+
+                  {acceptors.length === 0 && pending.length === 0 && (
+                    <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>
+                      Everyone declined
+                    </div>
+                  )}
+
                   <Button onClick={() => actions.cancelTrade(offer.id)} variant="ghost"
                     style={{ width: '100%', fontSize: 12 }}>
                     Cancel offer
@@ -86,7 +117,7 @@ export default function TradeNotification() {
                     fontSize: 12, fontWeight: 600,
                     color: myResponse === 'accepted' ? '#2ecc71' : '#888',
                   }}>
-                    {myResponse === 'accepted' ? '✓ You accepted — waiting for confirmation' : '✗ You declined'}
+                    {myResponse === 'accepted' ? '✓ Accepted — waiting for confirmation' : '✗ You declined'}
                   </div>
                 ) : (
                   <div style={{ display: 'flex', gap: 8 }}>

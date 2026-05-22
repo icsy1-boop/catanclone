@@ -8,6 +8,14 @@ import { createOffer, respondOffer, confirmTrade, cancelOffer, executePortTrade 
 import { checkWin, updateLongestRoad, updateLargestArmy } from './game/VictoryChecker.js';
 import { rollDice } from './utils/dice.js';
 
+const RES_LABEL = { WOOD: 'Wood', BRICK: 'Brick', SHEEP: 'Sheep', WHEAT: 'Wheat', ORE: 'Ore' };
+function fmtRes(resources) {
+  return Object.entries(resources)
+    .filter(([, v]) => v > 0)
+    .map(([r, v]) => `${v} ${RES_LABEL[r] || r}`)
+    .join(', ');
+}
+
 function broadcast(io, roomCode, event, data) {
   io.to(roomCode).emit(event, data);
 }
@@ -125,13 +133,20 @@ export function registerHandlers(io, socket) {
       const playerVertices = Object.values(gs.board.vertices)
         .filter(v => v.building?.playerId === playerId);
       const lastSettlement = playerVertices[playerVertices.length - 1];
+      const startingGains = {};
       if (lastSettlement) {
         for (const tileId of lastSettlement.adjacentTiles) {
           const tile = gs.board.tiles.find(t => t.id === tileId);
           if (!tile || tile.terrain === 'DESERT') continue;
           const res = TERRAIN_RESOURCE[tile.terrain];
-          if (res) gs.players[playerId].resources[res]++;
+          if (res) {
+            gs.players[playerId].resources[res]++;
+            startingGains[res] = (startingGains[res] || 0) + 1;
+          }
         }
+      }
+      if (Object.keys(startingGains).length > 0) {
+        gs.log.push(`${gs.players[playerId].name} starts with ${fmtRes(startingGains)}`);
       }
     }
 
@@ -170,9 +185,16 @@ export function registerHandlers(io, socket) {
       broadcast(io, roomCode, 'dice_rolled', { roll: [d1, d2], total, playerId });
       broadcastState(io, room);
     } else {
-      distributeResources(gs, total);
+      const grants = distributeResources(gs, total);
       gs.turnPhase = TurnPhase.MAIN;
       gs.turnStartTime = Date.now();
+      if (Object.keys(grants).length === 0) {
+        gs.log.push(`  No resources produced`);
+      } else {
+        for (const [pid, res] of Object.entries(grants)) {
+          gs.log.push(`  ${gs.players[pid]?.name} gets ${fmtRes(res)}`);
+        }
+      }
       broadcast(io, roomCode, 'dice_rolled', { roll: [d1, d2], total, playerId });
       broadcastState(io, room);
     }
@@ -350,14 +372,19 @@ export function registerHandlers(io, socket) {
     player.devCards.MONOPOLY--;
     player.playedDevCardThisTurn = true;
 
+    let totalTaken = 0;
     for (const [pid, other] of Object.entries(gs.players)) {
       if (pid === playerId) continue;
       const amount = other.resources[resource] || 0;
-      other.resources[resource] = 0;
-      player.resources[resource] = (player.resources[resource] || 0) + amount;
+      if (amount > 0) {
+        other.resources[resource] = 0;
+        player.resources[resource] = (player.resources[resource] || 0) + amount;
+        totalTaken += amount;
+        gs.log.push(`  took ${amount} ${RES_LABEL[resource]} from ${other.name}`);
+      }
     }
 
-    gs.log.push(`${player.name} played Monopoly on ${resource}`);
+    gs.log.push(`${player.name} played Monopoly on ${RES_LABEL[resource]} (${totalTaken} total)`);
     broadcastState(io, room);
   });
 
@@ -378,7 +405,7 @@ export function registerHandlers(io, socket) {
     player.resources[resource1] = (player.resources[resource1] || 0) + 1;
     player.resources[resource2] = (player.resources[resource2] || 0) + 1;
 
-    gs.log.push(`${player.name} played Year of Plenty`);
+    gs.log.push(`${player.name} played Year of Plenty: gets ${fmtRes({ [resource1]: 1, [resource2]: 1 })}`);
     broadcastState(io, room);
   });
 
@@ -411,7 +438,8 @@ export function registerHandlers(io, socket) {
     if (!assertTurn(socket, gs, playerId)) return;
     const result = confirmTrade(gs, tradeId, counterpartyId);
     if (result.error) return err(socket, result.error);
-    gs.log.push(`${currentPlayer(gs).name} traded with ${gs.players[counterpartyId]?.name}`);
+    const cName = gs.players[counterpartyId]?.name;
+    gs.log.push(`${currentPlayer(gs).name} ↔ ${cName}: gave ${fmtRes(result.give)}, got ${fmtRes(result.want)}`);
     broadcastState(io, room);
   });
 
@@ -432,7 +460,7 @@ export function registerHandlers(io, socket) {
 
     const result = executePortTrade(gs, playerId, give, want);
     if (result.error) return err(socket, result.error);
-    gs.log.push(`${gs.players[playerId].name} traded with the bank`);
+    gs.log.push(`${gs.players[playerId].name} traded ${fmtRes(give)} → ${fmtRes(want)} (bank)`);
     broadcastState(io, room);
   });
 
